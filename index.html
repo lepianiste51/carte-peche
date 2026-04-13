@@ -10,7 +10,175 @@
   <style>
     body { margin: 0; font-family: Arial; }
 
+    #map {<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Carte officielle zones de pêche</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial;
+    }
+
     #map {
+      height: 100vh;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* 🔥 Empêche Leaflet de passer au-dessus */
+    .leaflet-pane,
+    .leaflet-control-container {
+      z-index: 1 !important;
+    }
+
+    /* MENU HAUT */
+    .topbar {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      background: white;
+      padding: 10px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      z-index: 9999;
+      pointer-events: auto;
+    }
+
+    /* LEGENDE BAS */
+    .legend {
+      position: fixed;
+      bottom: 20px;
+      left: 10px;
+      background: white;
+      padding: 10px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      z-index: 9999;
+      pointer-events: auto;
+    }
+
+    select {
+      width: 100%;
+      padding: 8px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="topbar">
+  <select id="departement">
+    <option value="">Choisir un département</option>
+    <option value="91">Essonne (91)</option>
+    <option value="10">Aube (10)</option>
+    <option value="51">Marne (51)</option>
+    <option value="77">Seine-et-Marne (77)</option>
+  </select>
+</div>
+
+<div class="legend">
+  <strong>Légende</strong><br>
+  🔵 1ère catégorie<br>
+  🔴 2ème catégorie
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+
+// Carte
+var map = L.map('map').setView([46.5, 2.5], 6);
+
+// Fond
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+let currentLayer;
+
+// Couleur
+function getColor(cat) {
+  return cat === 1 ? 'blue' : 'red';
+}
+
+// Style
+function style(feature) {
+  return {
+    color: getColor(feature.properties.categorie),
+    weight: 3
+  };
+}
+
+// Popup
+function onEachFeature(feature, layer) {
+  layer.bindPopup(
+    "<strong>Rivière :</strong> " + feature.properties.nom + "<br>" +
+    "<strong>Catégorie :</strong> " + feature.properties.categorie
+  );
+}
+
+// Chemin fichier
+function getGeoJSONUrl(dep) {
+  return "data/peche_" + dep + ".geojson";
+}
+
+// Chargement
+function loadDepartement(dep) {
+
+  if (currentLayer) {
+    map.removeLayer(currentLayer);
+  }
+
+  let url = getGeoJSONUrl(dep);
+
+  fetch(url)
+    .then(res => res.json())
+    .then(data => {
+
+      currentLayer = L.geoJSON(data, {
+        style: style,
+        onEachFeature: onEachFeature
+      }).addTo(map);
+
+      map.fitBounds(currentLayer.getBounds());
+
+    })
+    .catch(err => {
+      alert("Fichier introuvable pour ce département");
+      console.error(err);
+    });
+}
+
+// Sélection
+document.getElementById("departement").addEventListener("change", function() {
+  if (this.value) {
+    loadDepartement(this.value);
+  }
+});
+
+// Géolocalisation
+map.locate({setView: true, maxZoom: 12});
+
+map.on('locationfound', function(e) {
+  L.marker(e.latlng)
+    .addTo(map)
+    .bindPopup("Vous êtes ici")
+    .openPopup();
+});
+
+</script>
+
+</body>
+</html>
       height: 100vh;
       z-index: 1; /* 🔥 carte en dessous */
     }
