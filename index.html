@@ -10,44 +10,37 @@
   <style>
     html, body {
       margin: 0;
-      padding: 0;
       height: 100%;
       font-family: Arial;
     }
 
     #map {
       height: 100%;
-      width: 100%;
+    }
+
+    .topbar, .legend {
+      position: fixed;
+      background: white;
+      padding: 10px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      z-index: 10000;
     }
 
     .topbar {
-      position: fixed;
       top: 10px;
       left: 10px;
       right: 10px;
-      background: white;
-      padding: 10px;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.3);
-      z-index: 10000;
     }
 
     .legend {
-      position: fixed;
       bottom: 20px;
       left: 10px;
-      background: white;
-      padding: 10px;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.3);
-      z-index: 10000;
-      font-size: 14px;
     }
 
     select {
       width: 100%;
       padding: 8px;
-      font-size: 14px;
     }
   </style>
 </head>
@@ -58,77 +51,61 @@
 <div class="topbar">
   <select id="departement">
     <option value="">Choisir un département</option>
-    <option value="75">Paris (75)</option>
-    <option value="77">Seine-et-Marne (77)</option>
-    <option value="78">Yvelines (78)</option>
-    <option value="91">Essonne (91)</option>
-    <option value="92">Hauts-de-Seine (92)</option>
-    <option value="93">Seine-Saint-Denis (93)</option>
-    <option value="94">Val-de-Marne (94)</option>
-    <option value="95">Val-d'Oise (95)</option>
     <option value="51">Marne (51)</option>
     <option value="10">Aube (10)</option>
+    <option value="91">Essonne (91)</option>
   </select>
 </div>
 
 <div class="legend">
   <strong>Légende</strong><br>
-  🔵 Petit cours d’eau (≈ 1ère cat)<br>
-  🔴 Rivière principale (≈ 2ème cat)<br>
-  ⚫ Autres / non classé
+  🔵 1ère catégorie<br>
+  🔴 2ème catégorie<br>
+  ⚫ Hors AAPPMA<br>
+  ⚪ Autres rivières
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
 
-// INIT MAP
 var map = L.map('map').setView([46.5, 2.5], 6);
 
-// TILE
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap'
-}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-let currentLayer;
+let riversLayer;
+let pecheLayer;
 
-// STYLE
-function getStyle(feature) {
-
-  let type = feature.properties.type;
-
-  if (type === "stream") {
-    return { color: "blue", weight: 2 };
-  }
-
-  if (type === "river") {
-    return { color: "red", weight: 3 };
-  }
-
-  return { color: "black", weight: 2 };
+// STYLE fond (toutes rivières)
+function styleRivers() {
+  return {
+    color: '#cccccc',
+    weight: 1
+  };
 }
 
-// POPUP
-function onEachFeature(feature, layer) {
-  layer.bindPopup(
-    "<strong>" + feature.properties.nom + "</strong><br>" +
-    "Type : " + feature.properties.type
-  );
+// STYLE officiel
+function stylePeche(feature) {
+  let cat = feature.properties.categorie;
+
+  if (cat === 1) return { color: 'blue', weight: 4 };
+  if (cat === 2) return { color: 'red', weight: 4 };
+
+  return { color: 'black', weight: 4 };
 }
 
-// LOAD DATA
+// LOAD
 function loadDepartement(dep) {
 
-  if (currentLayer) {
-    map.removeLayer(currentLayer);
-  }
+  if (riversLayer) map.removeLayer(riversLayer);
+  if (pecheLayer) map.removeLayer(pecheLayer);
 
-  // 🔥 Requête Overpass
+  // 🔥 1. Charger toutes les rivières (fond)
   var query = `
   [out:json][timeout:25];
-  area["ref:INSEE"="${dep}"]->.searchArea;
+  area["ref:INSEE"="${dep}"]->.a;
   (
-    way["waterway"~"river|stream"](area.searchArea);
+    way["waterway"~"river|stream"](area.a);
   );
   out geom;
   `;
@@ -140,50 +117,61 @@ function loadDepartement(dep) {
   .then(res => res.json())
   .then(data => {
 
-    var geojson = {
-      "type": "FeatureCollection",
-      "features": data.elements.map(el => ({
-        "type": "Feature",
-        "properties": {
-          nom: el.tags.name || "Cours d'eau",
-          type: el.tags.waterway
-        },
-        "geometry": {
-          "type": "LineString",
-          "coordinates": el.geometry.map(g => [g.lon, g.lat])
+    let geojson = {
+      type: "FeatureCollection",
+      features: data.elements.map(el => ({
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: el.geometry.map(g => [g.lon, g.lat])
         }
       }))
     };
 
-    currentLayer = L.geoJSON(geojson, {
-      style: getStyle,
-      onEachFeature: onEachFeature
+    riversLayer = L.geoJSON(geojson, {
+      style: styleRivers
     }).addTo(map);
 
-    map.fitBounds(currentLayer.getBounds());
-
-  })
-  .catch(err => {
-    alert("Erreur chargement des rivières");
-    console.error(err);
   });
+
+  // 🔥 2. Charger tes données officielles
+  fetch("data/peche_" + dep + ".geojson")
+    .then(res => res.json())
+    .then(data => {
+
+      pecheLayer = L.geoJSON(data, {
+        style: stylePeche,
+        onEachFeature: function(feature, layer) {
+          let cat = feature.properties.categorie;
+
+          let label = cat === 1 ? "1ère catégorie" :
+                      cat === 2 ? "2ème catégorie" :
+                      "Hors AAPPMA";
+
+          layer.bindPopup(
+            "<strong>" + feature.properties.nom + "</strong><br>" +
+            label
+          );
+        }
+      }).addTo(map);
+
+      map.fitBounds(pecheLayer.getBounds());
+
+    });
+
 }
 
-// EVENT SELECT
+// SELECT
 document.getElementById("departement").addEventListener("change", function() {
-  if (this.value) {
-    loadDepartement(this.value);
-  }
+  if (this.value) loadDepartement(this.value);
 });
 
 // GEOLOC
 map.locate({setView: true, maxZoom: 12});
 
 map.on('locationfound', function(e) {
-  L.marker(e.latlng)
-    .addTo(map)
-    .bindPopup("Vous êtes ici")
-    .openPopup();
+  L.marker(e.latlng).addTo(map)
+    .bindPopup("Vous êtes ici").openPopup();
 });
 
 </script>
